@@ -3,7 +3,7 @@
 #include <stdint.h>
 #include "pins.h"
 
-class Pwm
+class Pump
 {
 public:
     enum Direction
@@ -14,17 +14,17 @@ public:
 
     enum Channel
     {
-        MOTOR_A = 0,
-        MOTOR_B = 1
+        PUMP_1 = 0,
+        PUMP_2 = 1
     };
 
-    Pwm() = default;
-    ~Pwm() = default;
+    Pump() = default;
+    ~Pump() = default;
 
     void begin();
 
     uint32_t getDuty(Channel channel) const;
-    void setDuty(Channel channel, uint32_t duty);
+    void setDuty(Channel channel, uint8_t duty);
 
     void setMotorDirection(Channel channel, Direction direction);
 
@@ -33,7 +33,7 @@ private:
 
     // PWM Controls
     static constexpr uint8_t NUM_CHANNELS = 16;
-    static constexpr uint8_t LEDC_TIMER_RESOLUTION = 12; // use 12 bit precission for LEDC timer
+    static constexpr uint8_t LEDC_TIMER_RESOLUTION = 8; // use 8 bit precission for LEDC timer
     static constexpr int LEDC_BASE_FREQ = 5000;
 
     uint32_t mPwmDuty[NUM_CHANNELS] = {0};
