@@ -1,19 +1,27 @@
+#include <array>
 #include <ArduinoJson.h>
 #include <AsyncTCP.h>
-#include <EasyDDNS.h>
 #include <ESPAsyncWebServer.h>
+#include <NTPClient.h>
 #include <SPI.h>
 #include <WiFi.h>
 #include <WiFiMulti.h>
+#include <WiFiUdp.h>
+
+#include <esp_task_wdt.h>
+
+#include "pins.h"
+#include "JSONData.h"
+#include "reservoir.h"
+#include "tray.h"
+#include "pump.h"
 
 /* =============== config section start =============== */
 
-#define HTTP_PORT 8080
+constexpr uint16_t HTTP_PORT = 8080;
+constexpr uint8_t WDT_TIMEOUT = 30; // seconds
 
-const int BUTTON_PIN = 35;
-const int LED_PIN = 2;
-
-const char* hostName = "robowater.duckdns.org";
+constexpr const char *hostName = "robowater.duckdns.org";
 
 #if __has_include("credentials.h")
 #include "credentials.h"
@@ -21,185 +29,292 @@ const char* hostName = "robowater.duckdns.org";
 // WiFi credentials
 #define NUM_NETWORKS 1
 // Add your networks credentials here
-const char* ssidTab[NUM_NETWORKS] = {
-    "tinkle_IoT"
-};
-const char* passwordTab[NUM_NETWORKS] = {
-    "tinkle_key"
-};
+const char *ssidTab[NUM_NETWORKS] = {
+    "tinkle_IoT"};
+const char *passwordTab[NUM_NETWORKS] = {
+    "tinkle_key"};
 #endif
 /* =============== config section end =============== */
 
-#define LOG(f_, ...) \
-  { Serial.printf((f_), ##__VA_ARGS__); }
+#define LOG(f_, ...)                        \
+    {                                       \
+        Serial.printf((f_), ##__VA_ARGS__); \
+    }
 
 // you can provide credentials to multiple WiFi networks
 WiFiMulti wifiMulti;
+WiFiUDP ntpUDP;
 IPAddress myip;
+NTPClient timeClient(ntpUDP, "pool.ntp.org", -5 * 60 * 60);
 
-// https://github.com/me-no-dev/ESPAsyncWebServer/issues/324 - sometimes
 AsyncWebServer server(HTTP_PORT);
 AsyncWebSocket ws("/ws");
 
-StaticJsonDocument<200> jsonDocTx;
-StaticJsonDocument<100> jsonDocRx;
+JsonDocument jsonDocTx;
+JsonDocument jsonDocRx;
+
+// IO Devices
+Reservoir reservoir(&timeClient);
+Pump pump_1(PIN_PUMP_1_ENABLE, PIN_PUMP_1_PHASE, PUMP_1, &timeClient);
+Pump pump_2(PIN_PUMP_2_ENABLE, PIN_PUMP_2_PHASE, PUMP_2, &timeClient);
+Tray tray_1(PIN_MOISTURE_SENSOR_1, TRAY_1, &timeClient);
+Tray tray_2(PIN_MOISTURE_SENSOR_2, TRAY_2, &timeClient);
+Tray tray_3(PIN_MOISTURE_SENSOR_3, TRAY_3, &timeClient);
+Tray tray_4(PIN_MOISTURE_SENSOR_4, TRAY_4, &timeClient);
+std::array<IODevice *, 3> ioDevices{&reservoir, &pump_1, &pump_2};
+JSONData jsonData[2];
+JSONData *lastJsonData = &jsonData[0];
+JSONData *currJsonData = &jsonData[1];
 
 extern const char index_html_start[] asm("_binary_src_index_html_start");
-const String html = String((const char*)index_html_start);
+const String html = String((const char *)index_html_start);
 
 bool wsconnected = false;
 
-void notFound(AsyncWebServerRequest* request) {
-  request->send(404, "text/plain", "Not found");
+void notFound(AsyncWebServerRequest *request)
+{
+    request->send(404, "text/plain", "Not found");
 }
 
-void onWsEvent(AsyncWebSocket* server, AsyncWebSocketClient* client,
-               AwsEventType type, void* arg, uint8_t* data, size_t len) {
-  if (type == WS_EVT_CONNECT) {
-    wsconnected = true;
-    LOG("ws[%s][%u] connect\n", server->url(), client->id());
-    // client->printf("Hello Client %u :)", client->id());
-    client->ping();
-  } else if (type == WS_EVT_DISCONNECT) {
-    wsconnected = false;
-    LOG("ws[%s][%u] disconnect\n", server->url(), client->id());
-  } else if (type == WS_EVT_ERROR) {
-    LOG("ws[%s][%u] error(%u): %s\n", server->url(), client->id(),
-        *((uint16_t*)arg), (char*)data);
-  } else if (type == WS_EVT_PONG) {
-    LOG("ws[%s][%u] pong[%u]: %s\n", server->url(), client->id(), len,
-        (len) ? (char*)data : "");
-  } else if (type == WS_EVT_DATA) {
-    AwsFrameInfo* info = (AwsFrameInfo*)arg;
-    String msg = "";
-    if (info->final && info->index == 0 && info->len == len) {
-      // the whole message is in a single frame and we got all of it's data
-      LOG("ws[%s][%u] %s-msg[%llu]\r\n", server->url(), client->id(),
-          (info->opcode == WS_TEXT) ? "txt" : "bin", info->len);
-
-      if (info->opcode == WS_TEXT) {
-        for (size_t i = 0; i < info->len; i++) {
-          msg += (char)data[i];
-        }
-        LOG("%s\r\n\r\n", msg.c_str());
-
-        deserializeJson(jsonDocRx, msg);
-
-        uint8_t ledState = jsonDocRx["led"];
-        if (ledState == 1) {
-          digitalWrite(LED_PIN, HIGH);
-        }
-        if (ledState == 0) {
-          digitalWrite(LED_PIN, LOW);
-        }
-        jsonDocRx.clear();
-      }
+void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client,
+               AwsEventType type, void *arg, uint8_t *data, size_t len)
+{
+    if (type == WS_EVT_CONNECT)
+    {
+        wsconnected = true;
+        LOG("ws[%s][%u] connect\n", server->url(), client->id());
+        // client->printf("Hello Client %u :)", client->id());
+        client->ping();
     }
-  }
-}
+    else if (type == WS_EVT_DISCONNECT)
+    {
+        wsconnected = false;
+        LOG("ws[%s][%u] disconnect\n", server->url(), client->id());
+    }
+    else if (type == WS_EVT_ERROR)
+    {
+        LOG("ws[%s][%u] error(%u): %s\n", server->url(), client->id(),
+            *((uint16_t *)arg), (char *)data);
+    }
+    else if (type == WS_EVT_PONG)
+    {
+        LOG("ws[%s][%u] pong[%u]: %s\n", server->url(), client->id(), len,
+            (len) ? (char *)data : "");
+    }
+    else if (type == WS_EVT_DATA)
+    {
+        AwsFrameInfo *info = (AwsFrameInfo *)arg;
+        String msg = "";
+        if (info->final && info->index == 0 && info->len == len)
+        {
+            // the whole message is in a single frame and we got all of it's data
+            LOG("ws[%s][%u] %s-msg[%llu]\r\n", server->url(), client->id(),
+                (info->opcode == WS_TEXT) ? "txt" : "bin", info->len);
 
-void taskWifi(void* parameter);
-void taskStatus(void* parameter);
+            if (info->opcode == WS_TEXT)
+            {
+                for (size_t i = 0; i < info->len; i++)
+                {
+                    msg += (char)data[i];
+                }
+                LOG("%s\r\n\r\n", msg.c_str());
 
-void setup() {
-  Serial.begin(115200);
+                deserializeJson(jsonDocRx, msg);
 
-  pinMode(BUTTON_PIN, INPUT_PULLUP);
+                uint8_t ledState = jsonDocRx["led"];
+                if (ledState == 1)
+                {
+                    digitalWrite(PIN_LED, HIGH);
+                }
+                if (ledState == 0)
+                {
+                    digitalWrite(PIN_LED, LOW);
+                }
 
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, LOW);
-
-  xTaskCreate(taskWifi,   /* Task function. */
-              "taskWifi", /* String with name of task. */
-              20000,      /* Stack size in bytes. */
-              NULL,       /* Parameter passed as input of the task */
-              2,          /* Priority of the task. */
-              NULL);      /* Task handle. */
-}
-
-void taskWifi(void* parameter) {
-  uint8_t stat = WL_DISCONNECTED;
-  static char output[200];
-  int cnt = 0;
-  int lastButtonState = digitalRead(BUTTON_PIN);
-  TickType_t xLastWakeTime = xTaskGetTickCount();
-
-  /* Configure Wi-Fi */
-  for (int i = 0; i < NUM_NETWORKS; i++) {
-    wifiMulti.addAP(ssidTab[i], passwordTab[i]);
-    Serial.printf("WiFi %d: SSID: \"%s\" ; PASS: \"%s\"\r\n", i, ssidTab[i],
-                  passwordTab[i]);
-  }
-
-  while (stat != WL_CONNECTED) {
-    stat = wifiMulti.run();
-    Serial.printf("WiFi status: %d\r\n", (int)stat);
-    delay(100);
-  }
-
-  Serial.printf("WiFi connected\r\n");
-  Serial.printf("IP address: ");
-  Serial.println(myip = WiFi.localIP());
-
-  EasyDDNS.service("duckdns");
-  EasyDDNS.client("robowater.duckdns.org", "db847a14-8e21-42c7-929e-fa20bb1f8af5"); // Enter your DDNS Domain & Token
-
-  // Get Notified when your IP changes
-  EasyDDNS.onUpdate([&](const char* oldIP, const char* newIP){
-    Serial.print("EasyDDNS - IP Change Detected: ");
-    Serial.println(newIP);
-  });
-
-  /* Start web server and web socket server */
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest* request) {
-    request->send(200, "text/html", html);
-  });
-  server.onNotFound(notFound);
-  ws.onEvent(onWsEvent);
-  server.addHandler(&ws);
-  server.begin();
-
-  LOG("Type in browser:\r\n%s:%d\r\n", hostName, HTTP_PORT);
-
-  while (1) {
-    while (WiFi.status() == WL_CONNECTED) {
-      cnt++;
-      if ((wsconnected == true) &&
-          ((lastButtonState != digitalRead(BUTTON_PIN)) || (cnt % 100 == 0))) {
-        lastButtonState = digitalRead(BUTTON_PIN);
-        jsonDocTx.clear();
-        jsonDocTx["counter"] = cnt;
-        jsonDocTx["button"] = lastButtonState;
-
-        serializeJson(jsonDocTx, output, 200);
-
-        Serial.printf("Sending: %s", output);
-        if (ws.availableForWriteAll()) {
-          ws.textAll(output);
-          Serial.printf("...done\r\n");
-        } else {
-          Serial.printf("...queue is full\r\n");
+                jsonDocRx.clear();
+            }
         }
-      } else {
-        vTaskDelayUntil(&xLastWakeTime, 10 / portTICK_PERIOD_MS);
-      }
+    }
+}
+
+void taskWifi(void *parameter);
+void taskData(void *parameter);
+void taskManager(void *parameter);
+
+void setup()
+{
+    Serial.begin(115200);
+    LOG("Enabling WDT\n");
+    esp_task_wdt_init(WDT_TIMEOUT, true); // enable panic so ESP32 restarts
+
+    pinMode(PIN_LED, OUTPUT);
+    digitalWrite(PIN_LED, LOW);
+
+    for (auto &ioDevice : ioDevices)
+    {
+        ioDevice->begin();
     }
 
-    stat = wifiMulti.run();
-    myip = WiFi.localIP();
-    LOG("WiFi status: %d\r\n", (int)stat);
-    delay(500);
-  }
+    TaskHandle_t wifiHandle = nullptr;
+    xTaskCreate(taskWifi,         /* Task function. */
+                "taskWifi",       /* String with name of task. */
+                20000,            /* Stack size in bytes. */
+                NULL,             /* Parameter passed as input of the task */
+                4,                /* Priority of the task. */
+                &wifiHandle);     /* Task handle. */
+    esp_task_wdt_add(wifiHandle); // add the task to the WDT watch
+
+    TaskHandle_t dataHandle = nullptr;
+    auto data = xTaskCreate(taskData,     /* Task function. */
+                            "taskData",   /* String with name of task. */
+                            5000,         /* Stack size in bytes. */
+                            NULL,         /* Parameter passed as input of the task */
+                            3,            /* Priority of the task. */
+                            &dataHandle); /* Task handle. */
+    esp_task_wdt_add(dataHandle);         // add the task to the WDT watch
+
+    TaskHandle_t managerHandle = nullptr;
+    xTaskCreate(taskManager,         /* Task function. */
+                "taskManager",       /* String with name of task. */
+                5000,                /* Stack size in bytes. */
+                NULL,                /* Parameter passed as input of the task */
+                2,                   /* Priority of the task. */
+                &managerHandle);     /* Task handle. */
+    esp_task_wdt_add(managerHandle); // add the task to the WDT watch
 }
 
-void loop() {
-  Serial.printf("[RAM: %d]\r\n", esp_get_free_heap_size());
-  delay(10000);
-  // add ping mechanism in case of websocket connection timeout
-  // ws.cleanupClients();
-  // ws.pingAll();
+void taskManager(void *parameter)
+{
+    TickType_t xLastWakeTime = xTaskGetTickCount();
+    while (1)
+    {
+        digitalWrite(PIN_LED, 1);
+        if (timeClient.getSeconds() == 0)
+        {
+            LOG("Time: %s\n", timeClient.getFormattedTime());
+            pump_1.runPump(10, 128);
+            pump_2.runPump(10, 128);
+        }
+
+        for (auto &ioDevice : ioDevices)
+        {
+            ioDevice->update();
+        }
+
+        digitalWrite(PIN_LED, 0);
+        esp_task_wdt_reset();
+        vTaskDelayUntil(&xLastWakeTime, 100 * portTICK_PERIOD_MS);
+    }
 }
 
+void taskData(void *parameter)
+{
+    TickType_t xLastWakeTime = xTaskGetTickCount();
+    while (1)
+    {
+        for (auto &ioDevice : ioDevices)
+        {
+            ioDevice->fillData(*currJsonData);
+        }
+        esp_task_wdt_reset();
+        vTaskDelayUntil(&xLastWakeTime, 1000 * portTICK_PERIOD_MS);
+    }
+}
+
+void taskWifi(void *parameter)
+{
+    uint8_t stat = WL_DISCONNECTED;
+    static char output[200];
+    int cnt = 0;
+    TickType_t xLastWakeTime = xTaskGetTickCount();
+
+    /* Configure Wi-Fi */
+    for (int i = 0; i < NUM_NETWORKS; i++)
+    {
+        wifiMulti.addAP(ssidTab[i], passwordTab[i]);
+        Serial.printf("WiFi %d: SSID: \"%s\" ; PASS: \"%s\"\r\n", i, ssidTab[i],
+                      passwordTab[i]);
+    }
+
+    while (stat != WL_CONNECTED)
+    {
+        stat = wifiMulti.run();
+        Serial.printf("WiFi status: %d\r\n", (int)stat);
+        esp_task_wdt_reset();
+        vTaskDelayUntil(&xLastWakeTime, 100 * portTICK_PERIOD_MS);
+    }
+
+    Serial.printf("WiFi connected\r\n");
+    Serial.printf("IP address: ");
+    Serial.println(myip = WiFi.localIP());
+
+    /* Start NTP */
+    timeClient.begin();
+
+    /* Start web server and web socket server */
+    server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
+              { request->send(200, "text/html", html); });
+    server.onNotFound(notFound);
+    ws.onEvent(onWsEvent);
+    server.addHandler(&ws);
+    server.begin();
+
+    LOG("Type in browser:\r\n%s:%d\r\n", hostName, HTTP_PORT);
+
+    while (1)
+    {
+        while (WiFi.status() == WL_CONNECTED)
+        {
+            timeClient.update();
+            if ((wsconnected == true) &&
+                (*lastJsonData != *currJsonData))
+            {
+                jsonDocTx.clear();
+                jsonDocTx["rLevel"] = currJsonData->reservoir.level;
+                jsonDocTx["rRaw"] = currJsonData->reservoir.rawData;
+                jsonDocTx["pump1AccTime"] = currJsonData->pumps[0].accumulatedTime;
+                jsonDocTx["pump1Duty"] = currJsonData->pumps[0].duty;
+                jsonDocTx["pump2AccTime"] = currJsonData->pumps[1].accumulatedTime;
+                jsonDocTx["pump2Duty"] = currJsonData->pumps[1].duty;
+                jsonDocTx["tray1Level"] = currJsonData->trays[0].moisture;
+                jsonDocTx["tray2Level"] = currJsonData->trays[1].moisture;
+                jsonDocTx["tray3Level"] = currJsonData->trays[2].moisture;
+                jsonDocTx["tray4Level"] = currJsonData->trays[3].moisture;
+                jsonDocTx["lastUpdate"] = timeClient.getFormattedTime();
+
+                serializeJson(jsonDocTx, output, 200);
+                *lastJsonData = *currJsonData;
+
+                Serial.printf("%s\n", output);
+                if (ws.availableForWriteAll())
+                {
+                    ws.textAll(output);
+                }
+                else
+                {
+                    Serial.printf("...queue is full\r\n");
+                }
+            }
+            esp_task_wdt_reset();
+            vTaskDelayUntil(&xLastWakeTime, 1000 * portTICK_PERIOD_MS);
+        }
+
+        stat = wifiMulti.run();
+        myip = WiFi.localIP();
+        LOG("WiFi status: %d\r\n", (int)stat);
+        esp_task_wdt_reset();
+        vTaskDelayUntil(&xLastWakeTime, 500 * portTICK_PERIOD_MS);
+    }
+}
+
+void loop()
+{
+    Serial.printf("[RAM: %d]\r\n", esp_get_free_heap_size());
+    delay(10000);
+    // add ping mechanism in case of websocket connection timeout
+    // ws.cleanupClients();
+    // ws.pingAll();
+}
 
 // #include <Arduino.h>
 
@@ -253,7 +368,6 @@ void loop() {
 //     delay(DELAYVAL); // Pause before next pass through loop
 //   }
 // }
-
 
 // // Load Wi-Fi library
 // #include <WiFi.h>

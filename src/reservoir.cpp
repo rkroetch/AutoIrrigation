@@ -1,18 +1,43 @@
 #include "reservoir.h"
+// #include <Smoothed.h>
 
 void Reservoir::begin()
 {
-    HCSR04.begin(TRIGGER_PIN, ECHO_PIN);
+    mAverageRawData.begin(SMOOTHED_AVERAGE, 15);
+    pinMode(PIN_DISTANCE_TRIGGER, OUTPUT);
+    pinMode(PIN_DISTANCE_ECHO, INPUT);
+    HCSR04.begin(PIN_DISTANCE_TRIGGER, PIN_DISTANCE_ECHO);
 }
 
-double Reservoir::getFullness() const
+void Reservoir::fillData(JSONData &data)
 {
-    double *distances = HCSR04.measureDistanceCm(ROOM_TEMP);
-    if (distances[0] <= DISTANCE_EMPTY)
-        return 0.0;
+    getData(data.reservoir);
+}
 
-    if (distances[0] >= DISTANCE_FULL)
-        return 100.0;
+void Reservoir::getData(ReservoirData &data)
+{
+    long *microseconds = HCSR04.measureMicroseconds();
+    if (microseconds[0] < 0)
+        ++mErrorConsecutiveCount;
+    else
+        mErrorConsecutiveCount = 0;
 
-    return ((distances[0] - DISTANCE_EMPTY) / DISTANCE_FULL);
+    // Ignore up to 5 consecutive errors
+    if (mErrorConsecutiveCount > 5)
+    {
+        data.rawData = microseconds[0];
+        data.level = 0;
+        return;
+    }
+
+    mErrorConsecutiveCount = 0;
+    const_cast<Reservoir *>(this)->mAverageRawData.add(microseconds[0]);
+    data.rawData = const_cast<Reservoir *>(this)->mAverageRawData.get();
+
+    if (data.rawData >= DISTANCE_EMPTY)
+        data.level = 0.0;
+    else if (data.rawData <= DISTANCE_FULL)
+        data.level = 100.0;
+    else
+        data.level = 100.0 - ((data.rawData - DISTANCE_FULL) / (DISTANCE_EMPTY - DISTANCE_FULL) * 100.0);
 }

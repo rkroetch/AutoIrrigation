@@ -1,40 +1,44 @@
 #pragma once
 
 #include <stdint.h>
+#include "jsonData.h"
 #include "pins.h"
 
-class Pump
+class Pump : public IODevice
 {
 public:
-    enum Direction
-    {
-        FORWARD = 0,
-        BACKWARD = 1
-    };
-
-    enum Channel
-    {
-        PUMP_1 = 0,
-        PUMP_2 = 1
-    };
-
-    Pump() = default;
+    Pump(ConfiguredPin enablePin, ConfiguredPin phasePin, PumpNumber pumpNumber, NTPClient *ntpClient);
     ~Pump() = default;
 
-    void begin();
-
-    uint32_t getDuty(Channel channel) const;
-    void setDuty(Channel channel, uint8_t duty);
-
-    void setMotorDirection(Channel channel, Direction direction);
+    void begin() override;
+    void fillData(JSONData &data) override;
+    void update() override;
+    
+    void runPump(uint16_t duration, uint8_t duty);
 
 private:
-    static void setupPin(ConfiguredPin pin, Channel channel);
+    void getData(PumpData &data) const;
+    long getAccumulatedTime() const;
+
+    uint8_t getDuty() const;
+    void setDuty(uint8_t duty);
+
+private:
+    static void setupPin(ConfiguredPin pin, PumpNumber pumpNumber);
 
     // PWM Controls
     static constexpr uint8_t NUM_CHANNELS = 16;
     static constexpr uint8_t LEDC_TIMER_RESOLUTION = 8; // use 8 bit precission for LEDC timer
     static constexpr int LEDC_BASE_FREQ = 5000;
 
-    uint32_t mPwmDuty[NUM_CHANNELS] = {0};
+    ConfiguredPin mEnablePin;
+    ConfiguredPin mPhasePin;
+    PumpNumber mPumpNumber;
+    unsigned long mAccumulatedTime = 0;
+    unsigned long mLastTime = 0;
+    uint8_t mDuty = 0;
+
+    unsigned long mCurrStartTime = 0;
+    unsigned long mCurrEndTime = 0;
+    uint8_t mCurrDuty = 0;
 };

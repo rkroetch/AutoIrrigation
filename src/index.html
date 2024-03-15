@@ -44,15 +44,16 @@
                 ws.onmessage = function (evt) {
                     //create a JSON object
                     var jsonObject = JSON.parse(evt.data);
-                    var cnt = jsonObject.counter;
-                    var btn = jsonObject.button;
 
-                    document.getElementById("cnt").innerText = cnt;
-                    if (btn == 1) {
-                        document.getElementById("btn").style.color = "green";
-                    } else {
-                        document.getElementById("btn").style.color = "red";
-                    }
+                    document.getElementById("rLevel").innerText = jsonObject.rLevel;
+                    document.getElementById("rRaw").innerText = jsonObject.rRaw;;
+                    document.getElementById("lastUpdate").innerText = jsonObject.lastUpdate;
+
+                    // Pumps
+                    document.getElementById("pump1AccTime").innerText = jsonObject.pump1AccTime;
+                    document.getElementById("pump1Duty").innerText = jsonObject.pump1Duty;
+                    document.getElementById("pump2AccTime").innerText = jsonObject.pump2AccTime;
+                    document.getElementById("pump2Duty").innerText = jsonObject.pump2Duty;
                 };
 
                 ws.onclose = function (evt) {
@@ -94,28 +95,133 @@
             <div class="row">
                 <div class="col">
                     <div class="card bg-light m-2" style="min-height: 15rem;">
-                        <div class="card-header">Input 1</div>
+                        <div class="card-header">Reservoir</div>
                         <div class="card-body">
-                            <h5 class="card-title">Counter</h5>
+                            <h5 class="card-title">Level</h5>
                             <p class="card-text">
-                                A counter value is updated every 1s by ESP32.
+                                Level:
                             </p>
-                            <p id="cnt" class="font-weight-bold">
+                            <p id="rLevel" class="font-weight-bold">
+                                0
+                            </p>
+                            <h5 class="card-title">Raw Data</h5>
+                            <p class="card-text">
+                                Raw Data:
+                            </p>
+                            <p id="rRaw" class="font-weight-bold">
                                 0
                             </p>
                         </div>
                     </div>
                 </div>
+            </div>
+
+            <div class="row">
                 <div class="col">
                     <div class="card bg-light m-2" style="min-height: 15rem;">
-                        <div class="card-header">Input 2</div>
+                        <div class="card-header">Tray 1</div>
                         <div class="card-body">
-                            <h5 class="card-title">Button</h5>
                             <p class="card-text">
-                                Press the push button on ESP32 board to change a color of the
-                                dot below.
+                                Moisture Level:
                             </p>
-                            <i id="btn" class="fas fa-circle fa-2x" style="color:red;"></i>
+                            <p id="tray1level" class="font-weight-bold">
+                                0
+                            </p>
+                        </div>
+                        <div class="card-header">Tray 2</div>
+                        <div class="card-body">
+                            <p class="card-text">
+                                Moisture Level:
+                            </p>
+                            <p id="tray2level" class="font-weight-bold">
+                                0
+                            </p>
+                        </div>
+                        <div class="card-header">Tray 3</div>
+                        <div class="card-body">
+                            <p class="card-text">
+                                Moisture Level:
+                            </p>
+                            <p id="tray3level" class="font-weight-bold">
+                                0
+                            </p>
+                        </div>
+                        <div class="card-header">Tray 4</div>
+                        <div class="card-body">
+                            <p class="card-text">
+                                Moisture Level:
+                            </p>
+                            <p id="tray4level" class="font-weight-bold">
+                                0
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col">
+                    <div class="card bg-light m-2" style="min-height: 15rem;">
+                        <div class="card-header">Pump</div>
+                        <div class="card-body">
+                            <h5 class="card-title">Pump 1</h5>
+                            <p class="card-text">
+                                Duty cycle:
+                            </p>
+                            <p id="pump1Duty" class="font-weight-bold">
+                                0
+                            </p>
+                            <p class="card-text">
+                                Active Time (s):
+                            </p>
+                            <p id="pump1AccTime" class="font-weight-bold">
+                                0
+                            </p>
+                        </div>
+                        <div class="card-body">
+                            <h5 class="card-title">Pump 2</h5>
+                            <p class="card-text">
+                                Duty cycle:
+                            </p>
+                            <p id="pump2Duty" class="font-weight-bold">
+                                0
+                            </p>
+                            <p class="card-text">
+                                Active Time (s):
+                            </p>
+                            <p id="pump2AccTime" class="font-weight-bold">
+                                0
+                            </p>
+                        </div>
+                        <div class="card-body">
+                            <h5 class="card-title">Pump 3</h5>
+                            <p class="card-text">
+                                Duty cycle:
+                            </p>
+                            <p id="pump3Duty" class="font-weight-bold">
+                                0
+                            </p>
+                            <p class="card-text">
+                                Active Time (s):
+                            </p>
+                            <p id="pump3AccTime" class="font-weight-bold">
+                                0
+                            </p>
+                        </div>
+                        <div class="card-body">
+                            <h5 class="card-title">Pump 4</h5>
+                            <p class="card-text">
+                                Duty cycle:
+                            </p>
+                            <p id="pump4Duty" class="font-weight-bold">
+                                0
+                            </p>
+                            <p class="card-text">
+                                Active Time (s):
+                            </p>
+                            <p id="pump4AccTime" class="font-weight-bold">
+                                0
+                            </p>
                         </div>
                     </div>
                 </div>
@@ -133,6 +239,20 @@
                                 onmouseup="mouseUp()" ontouchstart="mouseDown()" ontouchend="mouseUp()">
                                 click
                             </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="col">
+                    <div class="card bg-light m-2">
+                        <div class="card-header">Info</div>
+                        <div class="card-body">
+                            <h5 class="card-title">Last Update Time</h5>
+                            <p class="card-text">
+                                Data last changed at:
+                            </p>
+                            <p id="lastUpdate" class="font-weight-bold">
+                                Never
+                            </p>
                         </div>
                     </div>
                 </div>

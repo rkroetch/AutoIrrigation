@@ -1,21 +1,29 @@
 #pragma once
 #include <Arduino.h>
 #include <HCSR04.h>
+#include <Smoothed.h>
+#include "NTPClient.h"
+#include "jsonData.h"
 #include "pins.h"
 
-class Reservoir
+class Reservoir : public IODevice
 {
 public:
-    static constexpr uint8_t TRIGGER_PIN = PIN_DISTANCE_TRIGGER;
-    static constexpr uint8_t ECHO_PIN = PIN_DISTANCE_ECHO;
     static constexpr float ROOM_TEMP = 20.5;
-    static constexpr double DISTANCE_EMPTY = 300.0;
-    static constexpr double DISTANCE_FULL = 100.0;
+    static constexpr double DISTANCE_EMPTY = 10.0;
+    static constexpr double DISTANCE_FULL = 3.0;
 
-    Reservoir();
+    Reservoir(NTPClient *ntpClient) : IODevice(ntpClient) {};
+    ~Reservoir() = default;
 
-    void begin();
-    double getFullness() const;
+    void begin() override;
+    void fillData(JSONData &data) override;
+    void update() override {};
 
 private:
+    void getData(ReservoirData& data);
+
+private:
+    Smoothed<long> mAverageRawData;
+    uint8_t mErrorConsecutiveCount = 0;
 };

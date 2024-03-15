@@ -1,53 +1,89 @@
 #include "pump.h"
 #include <Arduino.h>
 
+Pump::Pump(ConfiguredPin enablePin, ConfiguredPin phasePin, PumpNumber pumpNumber, NTPClient *ntpClient)
+    : IODevice(ntpClient), mEnablePin(enablePin), mPhasePin(phasePin), mPumpNumber(pumpNumber)
+{
+    assert(pumpNumber < NUM_CHANNELS);
+}
+
 void Pump::begin()
 {
-	pinMode(PIN_PUMP_1_ENABLE, OUTPUT);
-	pinMode(PIN_PUMP_1_PHASE, OUTPUT);
-	pinMode(PIN_PUMP_2_ENABLE, OUTPUT);
-	pinMode(PIN_PUMP_2_PHASE, OUTPUT);
+    pinMode(mEnablePin, OUTPUT);
+    pinMode(mPhasePin, OUTPUT);
 
-    setupPin(PIN_PUMP_1_ENABLE, PUMP_1);
-    setupPin(PIN_PUMP_2_ENABLE, PUMP_2);
-    setMotorDirection(PUMP_1, FORWARD);
-    setMotorDirection(PUMP_2, FORWARD);
+    setupPin(mEnablePin, mPumpNumber);
+    digitalWrite(mPhasePin, 1); // Temporary - this will be pulled high
+    
+    // Ensure we start with the pump off to match mDuty
+    ledcWrite(mPumpNumber, 0);
 }
 
-uint32_t Pump::getDuty(Channel channel) const
+void Pump::update()
 {
-    if (channel < 0 || channel > NUM_CHANNELS)
-        return 0;
-
-    return mPwmDuty[channel];
-}
-
-void Pump::setDuty(Channel channel, uint8_t duty)
-{
-    if (channel < 0 || channel > NUM_CHANNELS)
-        return;
-
-    ledcWrite(channel, duty);
-    mPwmDuty[channel] = duty;
-}
-
-void Pump::setMotorDirection(Channel motor, Direction direction)
-{
-    switch (motor)
+    auto currTime = millis();
+    if (currTime >= mCurrStartTime && currTime <= mCurrEndTime)
     {
-    case PUMP_1:
-        digitalWrite(PIN_PUMP_1_PHASE, direction);
-        break;
-    case PUMP_2:
-        digitalWrite(PIN_PUMP_2_PHASE, direction);
-        break;
-    default:
-        break;
+        setDuty(mCurrDuty);
+    }
+    else
+    {
+        setDuty(0);
     }
 }
 
-void Pump::setupPin(ConfiguredPin pin, Channel channel)
+void Pump::runPump(uint16_t duration, uint8_t duty)
 {
-    ledcSetup(channel, LEDC_BASE_FREQ, LEDC_TIMER_RESOLUTION);
-    ledcAttachPin(pin, channel);
+    mCurrStartTime = millis();
+    mCurrEndTime = mCurrStartTime + (duration * 1000);
+    mCurrDuty = duty;
+}
+
+void Pump::fillData(JSONData &data)
+{
+    getData(data.pumps[mPumpNumber]);
+}
+
+void Pump::getData(PumpData &data) const
+{
+    data.accumulatedTime = getAccumulatedTime();
+    data.duty = getDuty();
+}
+
+long Pump::getAccumulatedTime() const
+{
+    if (mDuty > 0)
+    {
+        return mAccumulatedTime + (millis() - mLastTime);
+    }
+    return mAccumulatedTime;
+}
+
+uint8_t Pump::getDuty() const
+{
+    return mDuty;
+}
+
+void Pump::setDuty(uint8_t duty)
+{
+    if (duty == mDuty)
+        return;
+
+    if (duty > 0)
+    {
+        if (mDuty == 0)
+            mLastTime = millis();
+    }
+    else
+    {
+        mAccumulatedTime += millis() - mLastTime;
+    }
+    ledcWrite(mPumpNumber, duty);
+    mDuty = duty;
+}
+
+void Pump::setupPin(ConfiguredPin pin, PumpNumber pumpNumber)
+{
+    ledcSetup(pumpNumber, LEDC_BASE_FREQ, LEDC_TIMER_RESOLUTION);
+    ledcAttachPin(pin, pumpNumber);
 }
