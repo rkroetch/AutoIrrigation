@@ -35,9 +35,9 @@ void Reservoir::getData(ReservoirData &data)
     data.rawData = const_cast<Reservoir *>(this)->mAverageRawData.get();
 
     if (data.rawData >= DISTANCE_EMPTY)
-        data.level = 0.0;
+        data.level = 0;
     else if (data.rawData <= DISTANCE_FULL)
-        data.level = 100.0;
+        data.level = 100;
     else
-        data.level = 100.0 - ((data.rawData - DISTANCE_FULL) / (DISTANCE_EMPTY - DISTANCE_FULL) * 100.0);
+        data.level = 100 - (((data.rawData - DISTANCE_FULL) * 100) / (DISTANCE_EMPTY - DISTANCE_FULL));
 }

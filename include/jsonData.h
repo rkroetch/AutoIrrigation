@@ -19,7 +19,7 @@ inline bool operator!=(const TrayData &lhs, const TrayData &rhs) { return !(lhs 
 
 struct ReservoirData
 {
-    uint16_t level = 0;
+    uint8_t level = 0;
     long rawData = 0;
 };
 inline bool operator==(const ReservoirData &lhs, const ReservoirData &rhs) { return ((lhs.level == rhs.level) &&

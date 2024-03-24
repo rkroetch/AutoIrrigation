@@ -10,8 +10,8 @@ class Reservoir : public IODevice
 {
 public:
     static constexpr float ROOM_TEMP = 20.5;
-    static constexpr double DISTANCE_EMPTY = 10.0;
-    static constexpr double DISTANCE_FULL = 3.0;
+    static constexpr long DISTANCE_EMPTY = 650;
+    static constexpr long DISTANCE_FULL = 200;
 
     Reservoir(NTPClient *ntpClient) : IODevice(ntpClient) {};
     ~Reservoir() = default;

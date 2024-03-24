@@ -1,8 +1,8 @@
 #include "pump.h"
 #include <Arduino.h>
 
-Pump::Pump(ConfiguredPin enablePin, ConfiguredPin phasePin, PumpNumber pumpNumber, NTPClient *ntpClient)
-    : IODevice(ntpClient), mEnablePin(enablePin), mPhasePin(phasePin), mPumpNumber(pumpNumber)
+Pump::Pump(ConfiguredPin enablePin, PumpNumber pumpNumber, NTPClient *ntpClient)
+    : IODevice(ntpClient), mEnablePin(enablePin), mPumpNumber(pumpNumber)
 {
     assert(pumpNumber < NUM_CHANNELS);
 }
@@ -10,10 +10,7 @@ Pump::Pump(ConfiguredPin enablePin, ConfiguredPin phasePin, PumpNumber pumpNumbe
 void Pump::begin()
 {
     pinMode(mEnablePin, OUTPUT);
-    pinMode(mPhasePin, OUTPUT);
-
     setupPin(mEnablePin, mPumpNumber);
-    digitalWrite(mPhasePin, 1); // Temporary - this will be pulled high
     
     // Ensure we start with the pump off to match mDuty
     ledcWrite(mPumpNumber, 0);
@@ -21,6 +18,9 @@ void Pump::begin()
 
 void Pump::update()
 {
+    if (mCurrEndTime == 0)
+        return;
+
     auto currTime = millis();
     if (currTime >= mCurrStartTime && currTime <= mCurrEndTime)
     {
@@ -29,7 +29,13 @@ void Pump::update()
     else
     {
         setDuty(0);
+        mCurrEndTime = 0;
     }
+}
+
+uint8_t Pump::duty() const
+{
+    return mDuty;
 }
 
 void Pump::runPump(uint16_t duration, uint8_t duty)
@@ -47,7 +53,7 @@ void Pump::fillData(JSONData &data)
 void Pump::getData(PumpData &data) const
 {
     data.accumulatedTime = getAccumulatedTime();
-    data.duty = getDuty();
+    data.duty = mDuty;
 }
 
 long Pump::getAccumulatedTime() const
@@ -57,11 +63,6 @@ long Pump::getAccumulatedTime() const
         return mAccumulatedTime + (millis() - mLastTime);
     }
     return mAccumulatedTime;
-}
-
-uint8_t Pump::getDuty() const
-{
-    return mDuty;
 }
 
 void Pump::setDuty(uint8_t duty)
@@ -76,7 +77,7 @@ void Pump::setDuty(uint8_t duty)
     }
     else
     {
-        mAccumulatedTime += millis() - mLastTime;
+        mAccumulatedTime += (millis() - mLastTime);
     }
     ledcWrite(mPumpNumber, duty);
     mDuty = duty;

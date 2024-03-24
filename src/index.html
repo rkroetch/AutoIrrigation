@@ -22,12 +22,8 @@
             event.returnValue = '';
         });
 
-        function mouseDown() {
-            ws.send('{"led" : 1}');
-        }
-
-        function mouseUp() {
-            ws.send('{"led" : 0}');
+        function TestPump(pump, duty) {
+            ws.send('{"togglePump" : ' + pump + ', "duty" : ' + duty + '}');
         }
 
         function WebSocketBegin() {
@@ -50,10 +46,24 @@
                     document.getElementById("lastUpdate").innerText = jsonObject.lastUpdate;
 
                     // Pumps
-                    document.getElementById("pump1AccTime").innerText = jsonObject.pump1AccTime;
-                    document.getElementById("pump1Duty").innerText = jsonObject.pump1Duty;
-                    document.getElementById("pump2AccTime").innerText = jsonObject.pump2AccTime;
-                    document.getElementById("pump2Duty").innerText = jsonObject.pump2Duty;
+                    document.getElementById("p1AccTime").innerText = jsonObject.p1AccTime;
+                    document.getElementById("p1Duty").innerText = jsonObject.p1Duty;
+                    document.getElementById("p1TT").innerText = jsonObject.p1TT;
+                    document.getElementById("p2AccTime").innerText = jsonObject.p2AccTime;
+                    document.getElementById("p2Duty").innerText = jsonObject.p2Duty;
+                    document.getElementById("p2TT").innerText = jsonObject.p2TT;
+                    document.getElementById("p3AccTime").innerText = jsonObject.p3AccTime;
+                    document.getElementById("p3Duty").innerText = jsonObject.p3Duty;
+                    document.getElementById("p3TT").innerText = jsonObject.p3TT;
+                    document.getElementById("p4AccTime").innerText = jsonObject.p4AccTime;
+                    document.getElementById("p4Duty").innerText = jsonObject.p4Duty;
+                    document.getElementById("p4TT").innerText = jsonObject.p4TT;
+
+                    // Trays
+                    document.getElementById("t1Moisture").innerText = jsonObject.t1Moisture;
+                    document.getElementById("t2Moisture").innerText = jsonObject.t2Moisture;
+                    document.getElementById("t3Moisture").innerText = jsonObject.t3Moisture;
+                    document.getElementById("t4Moisture").innerText = jsonObject.t4Moisture;
                 };
 
                 ws.onclose = function (evt) {
@@ -124,7 +134,7 @@
                             <p class="card-text">
                                 Moisture Level:
                             </p>
-                            <p id="tray1level" class="font-weight-bold">
+                            <p id="t1Moisture" class="font-weight-bold">
                                 0
                             </p>
                         </div>
@@ -133,7 +143,7 @@
                             <p class="card-text">
                                 Moisture Level:
                             </p>
-                            <p id="tray2level" class="font-weight-bold">
+                            <p id="t2Moisture" class="font-weight-bold">
                                 0
                             </p>
                         </div>
@@ -142,7 +152,7 @@
                             <p class="card-text">
                                 Moisture Level:
                             </p>
-                            <p id="tray3level" class="font-weight-bold">
+                            <p id="t3Moisture" class="font-weight-bold">
                                 0
                             </p>
                         </div>
@@ -151,7 +161,71 @@
                             <p class="card-text">
                                 Moisture Level:
                             </p>
-                            <p id="tray4level" class="font-weight-bold">
+                            <p id="t4Moisture" class="font-weight-bold">
+                                0
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col">
+                    <div class="card bg-light m-2" style="min-height: 15rem;">
+                        <div class="card-header">Pump 1</div>
+                        <div class="card-body">
+                            <p class="card-text">
+                                Duty cycle:
+                            </p>
+                            <p id="p1Duty" class="font-weight-bold">
+                                0
+                            </p>
+                            <p class="card-text">
+                                Active Time (s):
+                            </p>
+                            <p id="p1AccTime" class="font-weight-bold">
+                                0
+                            </p>
+                        </div>
+                        <div class="card-header">Pump 2</div>
+                        <div class="card-body">
+                            <p class="card-text">
+                                Duty cycle:
+                            </p>
+                            <p id="p2Duty" class="font-weight-bold">
+                                0
+                            </p>
+                            <p class="card-text">
+                                Active Time (s):
+                            </p>
+                            <p id="p2AccTime" class="font-weight-bold">
+                                0
+                            </p>
+                        </div>
+                        <div class="card-header">Pump 3</div>
+                        <div class="card-body">
+                            <p class="card-text">
+                                Duty cycle:
+                            </p>
+                            <p id="p3Duty" class="font-weight-bold">
+                                0
+                            </p>
+                            <p class="card-text">
+                                Active Time (s):
+                            </p>
+                            <p id="p3AccTime" class="font-weight-bold">
+                                0
+                            </p>
+                        </div>
+                        <div class="card-header">Pump 4</div>
+                        <div class="card-body">
+                            <p class="card-text">
+                                Duty cycle:
+                            </p>
+                            <p id="p4Duty" class="font-weight-bold">
+                                0
+                            </p>
+                            <p class="card-text">
+                                Active Time (s):
+                            </p>
+                            <p id="p4AccTime" class="font-weight-bold">
                                 0
                             </p>
                         </div>
@@ -161,84 +235,38 @@
 
             <div class="row">
                 <div class="col">
-                    <div class="card bg-light m-2" style="min-height: 15rem;">
-                        <div class="card-header">Pump</div>
-                        <div class="card-body">
-                            <h5 class="card-title">Pump 1</h5>
-                            <p class="card-text">
-                                Duty cycle:
-                            </p>
-                            <p id="pump1Duty" class="font-weight-bold">
-                                0
-                            </p>
-                            <p class="card-text">
-                                Active Time (s):
-                            </p>
-                            <p id="pump1AccTime" class="font-weight-bold">
-                                0
-                            </p>
-                        </div>
-                        <div class="card-body">
-                            <h5 class="card-title">Pump 2</h5>
-                            <p class="card-text">
-                                Duty cycle:
-                            </p>
-                            <p id="pump2Duty" class="font-weight-bold">
-                                0
-                            </p>
-                            <p class="card-text">
-                                Active Time (s):
-                            </p>
-                            <p id="pump2AccTime" class="font-weight-bold">
-                                0
-                            </p>
-                        </div>
-                        <div class="card-body">
-                            <h5 class="card-title">Pump 3</h5>
-                            <p class="card-text">
-                                Duty cycle:
-                            </p>
-                            <p id="pump3Duty" class="font-weight-bold">
-                                0
-                            </p>
-                            <p class="card-text">
-                                Active Time (s):
-                            </p>
-                            <p id="pump3AccTime" class="font-weight-bold">
-                                0
-                            </p>
-                        </div>
-                        <div class="card-body">
-                            <h5 class="card-title">Pump 4</h5>
-                            <p class="card-text">
-                                Duty cycle:
-                            </p>
-                            <p id="pump4Duty" class="font-weight-bold">
-                                0
-                            </p>
-                            <p class="card-text">
-                                Active Time (s):
-                            </p>
-                            <p id="pump4AccTime" class="font-weight-bold">
-                                0
-                            </p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="row">
-                <div class="col">
                     <div class="card bg-light m-2">
-                        <div class="card-header">Output</div>
+                        <div class="card-header">Test Pumps</div>
+                        <input id="pumpDuty" type="number" value="200" min="0" max="254">
                         <div class="card-body">
-                            <h5 class="card-title">LED</h5>
-                            <p class="card-text">
-                                Press the button to turn LED on. Release to turn LED off.
-                            </p>
-                            <button type="button" class="btn btn-lg btn-warning btn-block" onmousedown="mouseDown()"
-                                onmouseup="mouseUp()" ontouchstart="mouseDown()" ontouchend="mouseUp()">
-                                click
+                            <div class="card-header">Pump 1</div>
+                            <button type="button" class="btn btn-lg btn-warning btn-block" onmousedown="TestPump(1, document.getElementById('pumpDuty').value)" ontouchstart="TestPump(1, document.getElementById('pumpDuty').value)">
+                                toggle
                             </button>
+                            <p id="p1TT" class="font-weight-bold">
+                                0
+                            </p>
+                            <div class="card-header">Pump 2</div>
+                            <button type="button" class="btn btn-lg btn-warning btn-block" onmousedown="TestPump(2, document.getElementById('pumpDuty').value)" ontouchstart="TestPump(2, document.getElementById('pumpDuty').value)">
+                                toggle
+                            </button>
+                            <p id="p2TT" class="font-weight-bold">
+                                0
+                            </p>
+                            <div class="card-header">Pump 3</div>
+                            <button type="button" class="btn btn-lg btn-warning btn-block" onmousedown="TestPump(3, document.getElementById('pumpDuty').value)" ontouchstart="TestPump(3, document.getElementById('pumpDuty').value)">
+                                toggle
+                            </button>
+                            <p id="p3TT" class="font-weight-bold">
+                                0
+                            </p>
+                            <div class="card-header">Pump 2</div>
+                            <button type="button" class="btn btn-lg btn-warning btn-block" onmousedown="TestPump(4, document.getElementById('pumpDuty').value)" ontouchstart="TestPump(4, document.getElementById('pumpDuty').value)">
+                                toggle
+                            </button>
+                            <p id="p4TT" class="font-weight-bold">
+                                0
+                            </p>
                         </div>
                     </div>
                 </div>
