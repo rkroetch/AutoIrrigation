@@ -1,19 +1,19 @@
 #include "pump.h"
 #include <Arduino.h>
 
-Pump::Pump(ConfiguredPin enablePin, PumpNumber pumpNumber, NTPClient *ntpClient)
-    : IODevice(ntpClient), mEnablePin(enablePin), mPumpNumber(pumpNumber)
+Pump::Pump(ConfiguredPin enablePin, PumpName pumpName, NTPClient *ntpClient)
+    : IODevice(ntpClient), mEnablePin(enablePin), mPumpName(pumpName)
 {
-    assert(pumpNumber < NUM_CHANNELS);
+    assert(pumpName < NUM_CHANNELS);
 }
 
 void Pump::begin()
 {
     pinMode(mEnablePin, OUTPUT);
-    setupPin(mEnablePin, mPumpNumber);
+    setupPin(mEnablePin, mPumpName);
     
     // Ensure we start with the pump off to match mDuty
-    ledcWrite(mPumpNumber, 0);
+    ledcWrite(mPumpName, 0);
 }
 
 void Pump::update()
@@ -33,6 +33,21 @@ void Pump::update()
     }
 }
 
+void Pump::setEnabled(bool enabled)
+{
+    if (enabled == mEnabled)
+        return;
+
+    if (!enabled)
+    {
+        // Set duty to 0 before we set mEnabled.
+        // setDuty will not update duty if mEnabled is false.
+        setDuty(0);
+        mCurrEndTime = 0;
+    }
+    mEnabled = enabled;
+}
+
 uint8_t Pump::duty() const
 {
     return mDuty;
@@ -45,9 +60,9 @@ void Pump::runPump(uint16_t duration, uint8_t duty)
     mCurrDuty = duty;
 }
 
-void Pump::fillData(JSONData &data)
+void Pump::fillData(JsonData &data)
 {
-    getData(data.pumps[mPumpNumber]);
+    getData(data.pumps[mPumpName]);
 }
 
 void Pump::getData(PumpData &data) const
@@ -67,7 +82,7 @@ long Pump::getAccumulatedTime() const
 
 void Pump::setDuty(uint8_t duty)
 {
-    if (duty == mDuty)
+    if (!mEnabled || (duty == mDuty))
         return;
 
     if (duty > 0)
@@ -79,12 +94,12 @@ void Pump::setDuty(uint8_t duty)
     {
         mAccumulatedTime += (millis() - mLastTime);
     }
-    ledcWrite(mPumpNumber, duty);
+    ledcWrite(mPumpName, duty);
     mDuty = duty;
 }
 
-void Pump::setupPin(ConfiguredPin pin, PumpNumber pumpNumber)
+void Pump::setupPin(ConfiguredPin pin, PumpName pumpName)
 {
-    ledcSetup(pumpNumber, LEDC_BASE_FREQ, LEDC_TIMER_RESOLUTION);
-    ledcAttachPin(pin, pumpNumber);
+    ledcSetup(pumpName, LEDC_BASE_FREQ, LEDC_TIMER_RESOLUTION);
+    ledcAttachPin(pin, pumpName);
 }

@@ -1,7 +1,9 @@
 #include <array>
 #include <ArduinoJson.h>
 #include <AsyncTCP.h>
+#include <EEPROM.h>
 #include <ESPAsyncWebServer.h>
+#include <HTTPClient.h>
 #include <NTPClient.h>
 #include <SPI.h>
 #include <WiFi.h>
@@ -21,7 +23,14 @@
 constexpr uint16_t HTTP_PORT = 8080;
 constexpr uint8_t WDT_TIMEOUT = 30; // seconds
 
+constexpr uint8_t EEPROM_SIZE = 1; // 1 byte storing global 'enable' flag
+
 constexpr const char *hostName = "robowater.duckdns.org";
+constexpr const char *SECRET_KEY = "tinkle";
+
+constexpr uint8_t IOTPLOTTER_LOG_INTERVAL_M = 5;
+constexpr const char *IOTPLOTTER_API_KEY = "c1480e3942bb07381027506997d5809decc9770008";
+constexpr const char *IOTPLOTTER_URL = "http://iotplotter.com/api/v2/feed/851329303456179536";
 
 #if __has_include("credentials.h")
 #include "credentials.h"
@@ -29,9 +38,9 @@ constexpr const char *hostName = "robowater.duckdns.org";
 // WiFi credentials
 #define NUM_NETWORKS 1
 // Add your networks credentials here
-const char *ssidTab[NUM_NETWORKS] = {
+constexpr const char *ssidTab[NUM_NETWORKS] = {
     "tinkle_IoT"};
-const char *passwordTab[NUM_NETWORKS] = {
+constexpr const char *passwordTab[NUM_NETWORKS] = {
     "tinkle_key"};
 #endif
 /* =============== config section end =============== */
@@ -46,30 +55,27 @@ WiFiMulti wifiMulti;
 WiFiUDP ntpUDP;
 IPAddress myip;
 NTPClient timeClient(ntpUDP, "pool.ntp.org", -5 * 60 * 60);
+bool gEnabled = false;
 
 AsyncWebServer server(HTTP_PORT);
 AsyncWebSocket ws("/ws");
 
-JsonDocument jsonDocTx;
 JsonDocument jsonDocRx;
 
 // IO Devices
 Reservoir reservoir(&timeClient);
-Pump pumps[4] = {Pump(PIN_PUMP_1_ENABLE, PUMP_1, &timeClient),
-                 Pump(PIN_PUMP_2_ENABLE, PUMP_2, &timeClient),
-                 Pump(PIN_PUMP_3_ENABLE, PUMP_3, &timeClient),
+Pump pumps[4] = {Pump(PIN_PUMP_MID_ENABLE, PUMP_MID, &timeClient),
+                 Pump(PIN_PUMP_BOTTOM_ENABLE, PUMP_BOTTOM, &timeClient),
+                 Pump(PIN_PUMP_TOP_ENABLE, PUMP_TOP, &timeClient),
                  Pump(PIN_PUMP_4_ENABLE, PUMP_4, &timeClient)};
-Tray trays[4] = {Tray(PIN_MOISTURE_SENSOR_1, TRAY_1, &timeClient),
-                    Tray(PIN_MOISTURE_SENSOR_2, TRAY_2, &timeClient),
-                    Tray(PIN_MOISTURE_SENSOR_3, TRAY_3, &timeClient),
-                    Tray(PIN_MOISTURE_SENSOR_4, TRAY_4, &timeClient)};
+Tray trays[4] = {Tray(PIN_MOISTURE_SENSOR_MID, TRAY_MID, &timeClient),
+                 Tray(PIN_MOISTURE_SENSOR_BOTTOM, TRAY_BOTTOM, &timeClient),
+                 Tray(PIN_MOISTURE_SENSOR_TOP, TRAY_TOP, &timeClient),
+                 Tray(PIN_MOISTURE_SENSOR_4, TRAY_4, &timeClient)};
 std::array<IODevice *, 9> ioDevices{&reservoir, &pumps[0], &pumps[1], &pumps[2], &pumps[3], &trays[0], &trays[1], &trays[2], &trays[3]};
-JSONData jsonData[2];
-JSONData *lastJsonData = &jsonData[0];
-JSONData *currJsonData = &jsonData[1];
-
-uint16_t pTTs[4] = {0};
-uint16_t pSTs[4] = {0};
+JsonData jsonData[2];
+JsonData *lastJsonData = &jsonData[0];
+JsonData *currJsonData = &jsonData[1];
 
 extern const char index_html_start[] asm("_binary_src_index_html_start");
 const String html = String((const char *)index_html_start);
@@ -125,21 +131,44 @@ void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client,
                 LOG("%s\r\n\r\n", msg.c_str());
 
                 deserializeJson(jsonDocRx, msg);
+                String secret = jsonDocRx["secret"];
 
-                uint8_t pump = jsonDocRx["togglePump"];
-                uint8_t duty = jsonDocRx["duty"];
-                if (pump > 0 && pump <= 4)
+                LOG("Secret: %s\n", secret.c_str());
+                if (secret == SECRET_KEY)
                 {
-                    if (pumps[pump - 1].duty() == 0)
+                    if (jsonDocRx.containsKey("togglePump"))
                     {
-                        pSTs[pump - 1] = millis();
-                        pumps[pump - 1].setDuty(duty);
+                        LOG("Toggle Pump\n");
+                        uint8_t pump = jsonDocRx["togglePump"];
+                        uint8_t duty = jsonDocRx["duty"];
+                        if (pump > 0 && pump <= 4)
+                        {
+                            if (pumps[pump - 1].duty() == 0)
+                            {
+                                pumps[pump - 1].setDuty(duty);
+                            }
+                            else
+                            {
+                                pumps[pump - 1].setDuty(0);
+                            }
+                        }
                     }
-                    else
+                    else if (jsonDocRx.containsKey("setEnabled"))
                     {
-                        pTTs[pump - 1] = millis() - pSTs[pump - 1];
-                        pumps[pump - 1].setDuty(0);
+                        bool enabled = jsonDocRx["setEnabled"];
+                        LOG("Setting global enable to %d\n", enabled);
+                        gEnabled = enabled;
+                        EEPROM.write(0, gEnabled);
+                        EEPROM.commit();
+                        for (auto &pump : pumps)
+                        {
+                            pump.setEnabled(gEnabled);
+                        }
                     }
+                }
+                else
+                {
+                    LOG("Secret key mismatch\n");
                 }
 
                 jsonDocRx.clear();
@@ -149,6 +178,7 @@ void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client,
 }
 
 void taskWifi(void *parameter);
+void taskIoTPlotter(void *parameter);
 void taskData(void *parameter);
 void taskManager(void *parameter);
 
@@ -157,6 +187,14 @@ void setup()
     Serial.begin(115200);
     LOG("Enabling WDT\n");
     esp_task_wdt_init(WDT_TIMEOUT, true); // enable panic so ESP32 restarts
+
+    EEPROM.begin(EEPROM_SIZE);
+    gEnabled = EEPROM.read(0);
+    LOG("EEPROM read global enable: %d\n", gEnabled);
+    for (auto &pump : pumps)
+    {
+        pump.setEnabled(gEnabled);
+    }
 
     pinMode(PIN_LED, OUTPUT);
     digitalWrite(PIN_LED, LOW);
@@ -174,6 +212,15 @@ void setup()
                 4,                /* Priority of the task. */
                 &wifiHandle);     /* Task handle. */
     esp_task_wdt_add(wifiHandle); // add the task to the WDT watch
+
+    TaskHandle_t iotPlotterHandle = nullptr;
+    xTaskCreate(taskIoTPlotter,         /* Task function. */
+                "taskIoTPlotter",       /* String with name of task. */
+                20000,                  /* Stack size in bytes. */
+                NULL,                   /* Parameter passed as input of the task */
+                5,                      /* Priority of the task. */
+                &iotPlotterHandle);     /* Task handle. */
+    esp_task_wdt_add(iotPlotterHandle); // add the task to the WDT watch
 
     TaskHandle_t dataHandle = nullptr;
     auto data = xTaskCreate(taskData,     /* Task function. */
@@ -197,29 +244,55 @@ void setup()
 void taskManager(void *parameter)
 {
     TickType_t xLastWakeTime = xTaskGetTickCount();
+    int lastDay = 0;
+    int lastHour = 0;
+    int lastMinute = 0;
+    int lastSeconds = 0;
     while (1)
     {
+        // We will water on Sunday(0) and Wednesday(3)
+        // Watering will start at 9:00 AM
+
         digitalWrite(PIN_LED, 1);
-        // if (timeClient.getSeconds() == 0 && pump_1.duty() == 0)
-        // {
-        //     LOG("%s - Starting Pump 1\n", timeClient.getFormattedTime());
-        //     pump_1.runPump(10, 200);
-        // }
-        // if (timeClient.getSeconds() == 10 && pump_2.duty() == 0)
-        // {
-        //     LOG("%s - Starting Pump 2\n", timeClient.getFormattedTime());
-        //     pump_2.runPump(10, 200);
-        // }
-        // if (timeClient.getSeconds() == 20 && pump_3.duty() == 0)
-        // {
-        //     LOG("%s - Starting Pump 3\n", timeClient.getFormattedTime());
-        //     pump_3.runPump(10, 200);
-        // }
-        // if (timeClient.getSeconds() == 30 && pump_4.duty() == 0)
-        // {
-        //     LOG("%s - Starting Pump 4\n", timeClient.getFormattedTime());
-        //     pump_4.runPump(10, 200);
-        // }
+        int seconds = timeClient.getSeconds();
+        int minutes = timeClient.getMinutes();
+        int hours = timeClient.getHours();
+        int day = timeClient.getDay();
+
+        if (seconds != lastSeconds)
+        {
+            // New Second
+            lastSeconds = seconds;
+
+            if (minutes != lastMinute)
+            {
+                // New Minute
+                LOG("Time: %02d:%02d:%02d\r\n", hours, minutes, seconds);
+                lastMinute = minutes;
+
+                if (day == 0 || day == 3)
+                {
+                    if (hours == 9 && minutes == 0)
+                    {
+                        pumps[PUMP_TOP].runPump(2 * 60, 220);
+                        pumps[PUMP_MID].runPump(2 * 60, 220);
+                        pumps[PUMP_BOTTOM].runPump(2 * 60, 220);
+                    }
+                }
+
+                if (hours != lastHour)
+                {
+                    lastHour = hours;
+
+                    if (day != lastDay)
+                    {
+                        // New Day
+                        LOG("It's a new day!: %d\r\n", day);
+                        lastDay = day;
+                    }
+                }
+            }
+        }
 
         for (auto &ioDevice : ioDevices)
         {
@@ -229,6 +302,85 @@ void taskManager(void *parameter)
         digitalWrite(PIN_LED, 0);
         esp_task_wdt_reset();
         vTaskDelayUntil(&xLastWakeTime, 100 * portTICK_PERIOD_MS);
+    }
+}
+
+void postIoTPlotterData(const char *url, const char *apiKey, const String &data)
+{
+    LOG("POST to %s - %s\n", url, data.c_str());
+
+    HTTPClient http;
+    http.begin(url);
+    http.addHeader("Connection", "Close");
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("api-key", apiKey);
+    int httpCode = http.POST(data);
+    if (httpCode > 0)
+    {
+        String payload = http.getString();
+        LOG("HTTP code: %d\n", httpCode);
+        LOG("Response: %s\n", payload.c_str());
+    }
+    else
+    {
+        LOG("Error: %s\n", http.errorToString(httpCode).c_str());
+    }
+    http.end();
+}
+
+void taskIoTPlotter(void *parameter)
+{
+    TickType_t xLastWakeTime = xTaskGetTickCount();
+    int lastMinute = 0;
+    int lastSeconds = 0;
+    uint8_t lastPumpDuties[PUMP_MAX] = {0, 0, 0, 0};
+    String output;
+    while (1)
+    {
+        if (WiFi.status() == WL_CONNECTED)
+        {
+            bool logData = false;
+            int seconds = timeClient.getSeconds();
+            int minutes = timeClient.getMinutes();
+
+            if (seconds != lastSeconds)
+            {
+                // New Second
+                lastSeconds = seconds;
+
+                if (minutes != lastMinute)
+                {
+                    // New Minute
+                    lastMinute = minutes;
+                    if (minutes % IOTPLOTTER_LOG_INTERVAL_M == 0)
+                    {
+                        logData = true;
+                    }
+                }
+                else if (currJsonData->pumps[PUMP_TOP].duty != lastPumpDuties[PUMP_TOP] ||
+                         currJsonData->pumps[PUMP_MID].duty != lastPumpDuties[PUMP_MID] ||
+                         currJsonData->pumps[PUMP_BOTTOM].duty != lastPumpDuties[PUMP_BOTTOM] ||
+                         currJsonData->pumps[PUMP_4].duty != lastPumpDuties[PUMP_4])
+                {
+                    // Pump duty changed
+                    lastPumpDuties[PUMP_TOP] = currJsonData->pumps[PUMP_TOP].duty;
+                    lastPumpDuties[PUMP_MID] = currJsonData->pumps[PUMP_MID].duty;
+                    lastPumpDuties[PUMP_BOTTOM] = currJsonData->pumps[PUMP_BOTTOM].duty;
+                    lastPumpDuties[PUMP_4] = currJsonData->pumps[PUMP_4].duty;
+                    logData = true;
+                }
+            }
+
+            if (logData)
+            {
+                currJsonData->serializeIotPlotter(output);
+                // post to iotplotter
+                postIoTPlotterData(IOTPLOTTER_URL, IOTPLOTTER_API_KEY, output);
+            }
+        }
+
+        esp_task_wdt_reset();
+        vTaskDelayUntil(&xLastWakeTime, 1000 * portTICK_PERIOD_MS);
     }
 }
 
@@ -249,8 +401,7 @@ void taskData(void *parameter)
 void taskWifi(void *parameter)
 {
     uint8_t stat = WL_DISCONNECTED;
-    constexpr uint16_t JSON_BUFFER_SIZE = 1024;
-    static char output[JSON_BUFFER_SIZE];
+    String output;
     int cnt = 0;
     TickType_t xLastWakeTime = xTaskGetTickCount();
 
@@ -295,31 +446,10 @@ void taskWifi(void *parameter)
             if ((wsconnected == true) &&
                 (*lastJsonData != *currJsonData))
             {
-                jsonDocTx.clear();
-                jsonDocTx["rLevel"] = currJsonData->reservoir.level;
-                jsonDocTx["rRaw"] = currJsonData->reservoir.rawData;
-                jsonDocTx["p1AccTime"] = currJsonData->pumps[0].accumulatedTime;
-                jsonDocTx["p1Duty"] = currJsonData->pumps[0].duty;
-                jsonDocTx["p2AccTime"] = currJsonData->pumps[1].accumulatedTime;
-                jsonDocTx["p2Duty"] = currJsonData->pumps[1].duty;
-                jsonDocTx["p3AccTime"] = currJsonData->pumps[2].accumulatedTime;
-                jsonDocTx["p3Duty"] = currJsonData->pumps[2].duty;
-                jsonDocTx["p4AccTime"] = currJsonData->pumps[3].accumulatedTime;
-                jsonDocTx["p4Duty"] = currJsonData->pumps[3].duty;
-                jsonDocTx["t1Moisture"] = currJsonData->trays[0].moisture;
-                jsonDocTx["t2Moisture"] = currJsonData->trays[1].moisture;
-                jsonDocTx["t3Moisture"] = currJsonData->trays[2].moisture;
-                jsonDocTx["t4Moisture"] = currJsonData->trays[3].moisture;
-                jsonDocTx["p1TT"] = pTTs[0];
-                jsonDocTx["p2TT"] = pTTs[1];
-                jsonDocTx["p3TT"] = pTTs[2];
-                jsonDocTx["p4TT"] = pTTs[3];
-                jsonDocTx["lastUpdate"] = timeClient.getFormattedTime();
-
-                serializeJson(jsonDocTx, output, JSON_BUFFER_SIZE);
+                currJsonData->serializeWebServer(gEnabled, timeClient.getFormattedTime(), output);
                 *lastJsonData = *currJsonData;
 
-                Serial.printf("%s\n", output);
+                Serial.printf("%s\n", output.c_str());
                 if (ws.availableForWriteAll())
                 {
                     ws.textAll(output);

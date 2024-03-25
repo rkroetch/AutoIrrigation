@@ -17,7 +17,7 @@ public:
     ~Reservoir() = default;
 
     void begin() override;
-    void fillData(JSONData &data) override;
+    void fillData(JsonData &data) override;
     void update() override {};
 
 private:

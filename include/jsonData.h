@@ -1,14 +1,17 @@
 #pragma once
 #include <NTPClient.h>
+#include <ArduinoJson.h>
 
-enum TrayNumber
+enum TrayName
 {
-    TRAY_1 = 0,
-    TRAY_2,
-    TRAY_3,
+    TRAY_MID = 0,
+    TRAY_BOTTOM,
+    TRAY_TOP,
     TRAY_4,
     TRAY_MAX
 };
+
+constexpr const char *trayNames[] = {"Moisture_Mid", "Moisture_Bottom", "Moisture_Top", "Moisture_4", "Moisture_MAX"};
 
 struct TrayData
 {
@@ -27,14 +30,16 @@ inline bool operator==(const ReservoirData &lhs, const ReservoirData &rhs) { ret
 inline bool operator!=(const ReservoirData &lhs, const ReservoirData &rhs) { return !(lhs == rhs); }
 
 
-enum PumpNumber
+enum PumpName
 {
-    PUMP_1 = 0,
-    PUMP_2,
-    PUMP_3,
+    PUMP_MID = 0,
+    PUMP_BOTTOM,
+    PUMP_TOP,
     PUMP_4,
     PUMP_MAX
 };
+constexpr const char *pumpNames[] = {"Duty_Mid", "Duty_Bottom", "Duty_Top", "Duty_4", "Duty_MAX"};
+
 struct PumpData
 {
     unsigned long accumulatedTime = 0;
@@ -44,14 +49,57 @@ inline bool operator==(const PumpData &lhs, const PumpData &rhs) { return ((lhs.
                                                                            (lhs.duty == rhs.duty)); }
 inline bool operator!=(const PumpData &lhs, const PumpData &rhs) { return !(lhs == rhs); }
 
-struct JSONData
+class JsonData
 {
+    public:
+    explicit JsonData() {}
     ReservoirData reservoir{};
     PumpData pumps[PUMP_MAX] {};
     TrayData trays[TRAY_MAX] {};
 
+    void serializeIotPlotter(String &jsonString)
+    {
+        mJsonDoc.clear();
+        auto object = mJsonDoc["data"].to<JsonObject>();
+        object["Reservoir"][0]["value"] = reservoir.level;
+        for (int i = 0; i < PUMP_MAX; i++)
+        {
+            object[pumpNames[i]][0]["value"] = pumps[i].duty;
+        }
+        for (int i = 0; i < TRAY_MAX; i++)
+        {
+            object[trayNames[i]][0]["value"] = trays[i].moisture;
+        }
+        serializeJson(mJsonDoc, jsonString);
+    }
+
+    void serializeWebServer(bool enabled, const String& updateTime, String &jsonString)
+    {
+        mJsonDoc.clear();
+        mJsonDoc["enabled"] = enabled;
+        mJsonDoc["rLevel"] = reservoir.level;
+        mJsonDoc["rRaw"] = reservoir.rawData;
+        mJsonDoc["p1AccTime"] = pumps[0].accumulatedTime;
+        mJsonDoc["p1Duty"] = pumps[0].duty;
+        mJsonDoc["p2AccTime"] = pumps[1].accumulatedTime;
+        mJsonDoc["p2Duty"] = pumps[1].duty;
+        mJsonDoc["p3AccTime"] = pumps[2].accumulatedTime;
+        mJsonDoc["p3Duty"] = pumps[2].duty;
+        mJsonDoc["p4AccTime"] = pumps[3].accumulatedTime;
+        mJsonDoc["p4Duty"] = pumps[3].duty;
+        mJsonDoc["t1Moisture"] = trays[0].moisture;
+        mJsonDoc["t2Moisture"] = trays[1].moisture;
+        mJsonDoc["t3Moisture"] = trays[2].moisture;
+        mJsonDoc["t4Moisture"] = trays[3].moisture;
+        mJsonDoc["lastUpdate"] = updateTime;
+
+        serializeJson(mJsonDoc, jsonString);
+    }
+
+    private:
+    JsonDocument mJsonDoc;
 };
-inline bool operator==(const JSONData &lhs, const JSONData &rhs) { return lhs.reservoir == rhs.reservoir &&
+inline bool operator==(const JsonData &lhs, const JsonData &rhs) { return lhs.reservoir == rhs.reservoir &&
                                                                           lhs.pumps[0] == rhs.pumps[0] &&
                                                                           lhs.pumps[1] == rhs.pumps[1] &&
                                                                           lhs.pumps[2] == rhs.pumps[2] &&
@@ -60,7 +108,7 @@ inline bool operator==(const JSONData &lhs, const JSONData &rhs) { return lhs.re
                                                                           lhs.trays[1] == rhs.trays[1] &&
                                                                           lhs.trays[2] == rhs.trays[2] &&
                                                                           lhs.trays[3] == rhs.trays[3];}
-inline bool operator!=(const JSONData &lhs, const JSONData &rhs) { return !(lhs == rhs); }
+inline bool operator!=(const JsonData &lhs, const JsonData &rhs) { return !(lhs == rhs); }
 
 class IODevice
 {
@@ -69,7 +117,7 @@ public:
     virtual ~IODevice() = default;
 
     virtual void begin() = 0;
-    virtual void fillData(JSONData &data) = 0;
+    virtual void fillData(JsonData &data) = 0;
     virtual void update() = 0;
 
 protected:

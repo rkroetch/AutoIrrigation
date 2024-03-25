@@ -9,7 +9,7 @@ void Reservoir::begin()
     HCSR04.begin(PIN_DISTANCE_TRIGGER, PIN_DISTANCE_ECHO);
 }
 
-void Reservoir::fillData(JSONData &data)
+void Reservoir::fillData(JsonData &data)
 {
     getData(data.reservoir);
 }

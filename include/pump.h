@@ -7,12 +7,15 @@
 class Pump : public IODevice
 {
 public:
-    Pump(ConfiguredPin enablePin, PumpNumber pumpNumber, NTPClient *ntpClient);
+    Pump(ConfiguredPin enablePin, PumpName pumpName, NTPClient *ntpClient);
     ~Pump() = default;
 
     void begin() override;
-    void fillData(JSONData &data) override;
+    void fillData(JsonData &data) override;
     void update() override;
+
+    void setEnabled(bool enabled);
+    bool enabled() const;
     
     uint8_t duty() const;
     void setDuty(uint8_t duty);
@@ -24,15 +27,16 @@ private:
     long getAccumulatedTime() const;
 
 private:
-    static void setupPin(ConfiguredPin pin, PumpNumber pumpNumber);
+    static void setupPin(ConfiguredPin pin, PumpName pumpName);
 
     // PWM Controls
     static constexpr uint8_t NUM_CHANNELS = 16;
     static constexpr uint8_t LEDC_TIMER_RESOLUTION = 8; // use 8 bit precission for LEDC timer
     static constexpr int LEDC_BASE_FREQ = 5000;
 
+    bool mEnabled = false;
     ConfiguredPin mEnablePin;
-    PumpNumber mPumpNumber;
+    PumpName mPumpName;
     unsigned long mAccumulatedTime = 0;
     unsigned long mLastTime = 0;
     uint8_t mDuty = 0;

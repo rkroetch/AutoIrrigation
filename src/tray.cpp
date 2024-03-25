@@ -1,18 +1,18 @@
 #include "tray.h"
 #include "pins.h"
 
-Tray::Tray(ConfiguredPin moistureSensorPin, TrayNumber trayNumber, NTPClient *ntpClient) : IODevice(ntpClient), mMoistureSensorPin(moistureSensorPin), mTrayNumber(trayNumber)
+Tray::Tray(ConfiguredPin moistureSensorPin, TrayName trayName, NTPClient *ntpClient) : IODevice(ntpClient), mMoistureSensorPin(moistureSensorPin), mTrayName(trayName)
 {
 }
 
 void Tray::begin()
 {
-    // pinMode(mMoistureSensorPin, INPUT);
+    mAverageData.begin(SMOOTHED_AVERAGE, 15);
 }
 
-void Tray::fillData(JSONData &data)
+void Tray::fillData(JsonData &data)
 {
-    getData(data.trays[mTrayNumber]);
+    getData(data.trays[mTrayName]);
 }
 
 void Tray::update()
@@ -21,5 +21,6 @@ void Tray::update()
 
 void Tray::getData(TrayData &data) const
 {
-    data.moisture = analogRead(mMoistureSensorPin);
+    const_cast<Tray *>(this)->mAverageData.add(analogRead(mMoistureSensorPin));
+    data.moisture = const_cast<Tray *>(this)->mAverageData.get();
 }
